@@ -1,6 +1,6 @@
 ---
 name: feature-spec
-description: Run the full spec process for a feature — explore the codebase, interrogate the user with batched multiple-choice questions until every material ambiguity is resolved, then write a dense spec.md with locked decisions, rejected alternatives, and independently-shippable implementation phases. Use this whenever the user wants a spec, design doc, technical plan, RFC, or implementation plan written to a file, and also when they describe a feature they want built and the work is large enough to need phasing, even if they never say the word "spec". Triggers include "write a spec for X", "spec this out", "plan the implementation", "break this into phases", "design doc for", "how should we build X", or pasting a pile of requirements and asking what to do with them. Prefer this over ad-hoc planning whenever the deliverable is a markdown plan that a later agent will build from. Skip it for single-file bug fixes and changes small enough to just make.
+description: Produce a build-ready feature spec by exploring the relevant code, resolving design-changing ambiguities, and defining independently shippable implementation phases. Use this whenever the user wants a spec, design doc, technical plan, RFC, or implementation plan written to a file, and when a feature is large enough to need phasing even if they never say "spec". Triggers include "write a spec for X", "spec this out", "plan the implementation", "break this into phases", "design doc for", "how should we build X", or a substantial set of requirements needing a plan. Skip it for single-file bug fixes and changes small enough to implement directly.
 ---
 
 # Feature Spec
@@ -22,21 +22,21 @@ Everything else is packaging.
 
 ## Process
 
-### 1. Explore (parallel subagents)
+### 1. Explore
 
-Before asking anything, find out what's actually there. Fan out read-only agents — one per area, in a single message so they run concurrently. Typical splits: the subsystem being changed, the code that would be reused or deleted, adjacent systems that will feel the change, existing conventions (test layout, migration style, lint config), prior art elsewhere in the repo.
+Explore directly with focused searches and file reads. Find what exists, what is reusable, what blocks the feature, and what would surprise an implementer.
 
-First check whether the feature crosses repos. Sibling directories, submodules, an infra repo next to an app repo — if the feature touches more than one, explore each. Ask if unsure.
+Delegate read-only exploration only when the feature spans multiple repositories, contains genuinely independent subsystems, or would add substantial noise to the main context. Give each agent one bounded question and use no more than two exploration agents total. Do not delegate when targeted searches can establish the relevant flow.
 
-Ask each agent for: what exists, what's reusable, what's in the way, what surprised you. That last one is the point.
+Check other repositories only when the request or codebase provides evidence that the feature crosses repository boundaries. Ask if that boundary is unclear and materially changes scope.
 
 ### 2. Report findings
 
-Show a short summary before the first question — 10-20 bullets, grouped. What exists, what's reusable, what blocks, what surprised you. This calibrates the user before they answer anything, and it lets them correct a wrong read of the codebase before it poisons every downstream question.
+Before the first question, report only findings that affect scope, contracts, risks, or a user decision. Use at most 5-8 short bullets. Skip the report when there is nothing the user needs to confirm or correct.
 
 ### 3. Interrogate
 
-Use the multiple-choice question tool. Four questions per round, several rounds. Each option gets a real tradeoff in its description — the user is picking between consequences, not labels. Where you have a view, put your recommended option first and mark it `(Recommended)`.
+Use the multiple-choice question tool for up to three material questions per round. One round is the default; continue only when an answer exposes another implementation-blocking decision. Each option gets a real tradeoff in its description. Put your recommended option first and mark it `(Recommended)`.
 
 Ask about what actually changes the design:
 
@@ -47,9 +47,9 @@ Ask about what actually changes the design:
 - Migration and backfill for anything already in production
 - Anything where you'd otherwise be guessing at the user's business context
 
-Don't ask what the codebase already answers, and don't ask about things whose answer wouldn't change a single line of the spec.
+Don't ask what the codebase already answers or what would not change the spec. State a safe, reversible default instead of asking about a minor preference.
 
-Keep going until nothing material is unresolved. Before the last round, say what you think is still open so the user can add to it. Genuinely open questions that don't block the build get parked in Open Decisions — that's a legitimate destination, not a failure.
+Stop questioning when remaining uncertainty would not materially change implementation. Park non-blocking uncertainty in Open Decisions with the default the implementer should use.
 
 ### 4. Pick the path, then write
 
@@ -61,13 +61,17 @@ Write the file. Don't summarize it back in chat; the file is the deliverable. Sa
 
 ### 5. Iterate
 
-The user reads and reacts. Revise the file. Repeat until they're satisfied.
+Revise when the user requests changes. Do not add a review agent or another exploration pass by default.
+
+Before delivering, perform one inline scan for placeholders, contradictions, missing phase verification, and unresolved implementation blockers. Fix issues directly, then stop.
 
 ## Structure
 
 Mandatory: **Goal**, **Scope (In/Out)**, **Decisions**, **Considered & rejected**, **Implementation phases**, **Open Decisions**, **Risks**.
 
 Everything else is by need. Design sections between Decisions and phases are where most of the spec lives, and their shape follows the feature — data model, endpoints, state machine, the loop, the flow. Name them for what they are. Don't invent sections to fill a template, and don't drop a section the feature obviously needs because it isn't on the mandatory list.
+
+Scale detail to risk and complexity. Use the fewest sections and phases that leave the design unambiguous and each phase independently shippable.
 
 `Considered & rejected` can be its own section or inline where the decision is made — inline is often better, since the rejected option is most interesting next to the one that won. Either way it must exist somewhere.
 
@@ -87,12 +91,12 @@ A phase is a stopping point, not a work chunk. The test: if the project were can
 
 Phase one is usually whatever unblocks everything else — a contract, a schema, a bug that must be fixed before anything downstream is safe. Sequencing after that follows dependencies, not effort.
 
-Prefer parallelism where the deps allow it, and say so explicitly — a dependency graph plus which phases run alongside each other. Note where the graph lies: two phases can be independent on paper and sequential in practice (a codegen step, a shared migration, a deploy that must land first). Call that out; it's exactly the kind of thing that burns a parallel build.
+Record dependencies that constrain execution. Work is performed one requested phase at a time; do not suggest combining or concurrently executing phases. If implementation later needs to cross a phase boundary, it must explain why and get user approval.
 
 Each phase carries:
 
-- **Status marker** on the heading. `— ` (not started) → `IN PROGRESS` → `CODE DONE, VERIFICATION PENDING` → `✅ DONE`. Add a qualifier when the truth needs one.
-- **Deps + parallelism** — `deps: P1, P2 · ∥ P4`.
+- **Status marker** on the heading. `—` (not started) → `IN PROGRESS` → `CODE DONE, VERIFICATION PENDING` → `✅ DONE`. Add a qualifier when the truth needs one.
+- **Dependencies** — `deps: P1, P2`.
 - **Deliverables** — bullets naming files/functions and the approach. What and how.
 - **Verify** — how you'd prove this phase works with nothing after it built. Concrete: the test that must pass, the command whose output you'd check, the thing you'd observe.
 - **Checklist** — `[ ]` sub-items the builder ticks.
@@ -102,76 +106,24 @@ Keep them lean. Resist adding fields.
 Phase heading format:
 
 ```markdown
-### Phase 2 — Razorpay + webhook · deps: P0 · ∥ P1, P4 · —
+### Phase 2 — Razorpay + webhook · deps: P0 · —
 ```
 
 ## The upkeep block
 
-Every spec ends its phase section with the rules for maintaining itself, so the agent that builds from it knows what to write back. Adapt the project conventions to the repo you explored; keep the upkeep rules as they are.
+Every spec ends its phase section with concise maintenance rules so the implementer keeps it accurate without recording routine history. Adapt project conventions to the repository.
 
 ```markdown
 ### Conventions (all phases)
 - <project conventions found during exploration: lint, test layout, codegen, style>
 - Run <lint> + <test> before marking a phase done.
-- **Contract freeze:** <the interfaces fixed in the first phase>. Changing them means updating this spec first, then telling dependent phases.
+- **Contract freeze:** <interfaces fixed in the first phase>. Changing them means updating this spec first, then telling dependent phases.
 
 ### Keeping this spec current
 - Update the status marker on the heading and tick the checklist as you go.
-- When the build deviates from the plan, **strike the original line and say why it changed** — `~~original~~ **Cut in P4.** <reason>`. Never silently rewrite; the reason a plan changed is worth more than the plan.
-- After a phase lands, add only detail that would surprise the next reader — a constant whose value is load-bearing, a behavior that isn't what the name suggests, an ordering that matters. Skip anything the code already says plainly.
-- Problems found but not fixed go to Open Decisions or a Follow-up note, with enough detail to act on later. Don't fix them inline and don't leave them unrecorded.
-```
-
-## Template
-
-```markdown
-# <Feature> — Spec
-
-## Goal
-- <one or two lines: what changes, and the shape of the flow>
-
-## Scope
-- **In:** <...>
-- **Out:** <...>
-
-## Decisions
-- **<Question>:** <decision>. <why, only where non-obvious>
-- ...
-
-## <Design sections — shaped by the feature>
-<data model / endpoints / state machine / the loop / flow — whatever this feature actually needs>
-
-## Considered & rejected
-- **<Alternative>** — <why it lost>
-<or fold these inline next to the decisions they lost to>
-
-## Implementation phases
-
-<dependency graph, if there's parallelism>
-
-### Conventions (all phases)
-<...>
-
-### Keeping this spec current
-<...>
-
-### Phase 0 — <name> · deps: none · blocks all · —
-- <deliverable>
-- **Verify:** <how you'd prove it standalone>
-- Checklist:
-  - [ ] <item>
-
-### Phase 1 — <name> · deps: P0 · ∥ P2 · —
-...
-
-## Open Decisions
-- <deliberately deferred, with what would resolve it>
-
-## Risks
-- **<Risk>** — <consequence>. Mitigation: <...>
-
-## Success criteria
-- <end-to-end statements that must be true when all phases land>
+- Update the plan to current truth. Add one brief deviation note only when behavior, scope, contracts, or phase boundaries materially change.
+- After a phase lands, add only detail that would surprise the next reader. Skip anything the code already says plainly.
+- Put unresolved problems in Open Decisions or a Follow-up note with enough detail to act later. Do not fix them outside the requested phase.
 ```
 
 ## Anti-patterns
@@ -180,4 +132,4 @@ Every spec ends its phase section with the rules for maintaining itself, so the 
 - **Phases split by layer.** "Phase 1: models. Phase 2: services. Phase 3: API." None of those ship alone. Split by shippable capability.
 - **Verify criteria that say "tests pass".** Say which behavior the test proves.
 - **A Decisions section that reads as a summary.** It's the record of what was resolved during the interrogation, including the ones the user overruled you on.
-- **Writing before the questions are exhausted.** A spec built on assumptions is worse than no spec — it gets built.
+- **Questioning past the decision point.** Stop when remaining uncertainty does not materially change implementation.
